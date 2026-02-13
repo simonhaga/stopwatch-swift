@@ -29,6 +29,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for item in menu.items { item.target = self }
         statusItem.menu = menu
 
+        // Stop stopwatch automatically on sleep / logout / screensaver.
+        let workspaceNC = NSWorkspace.shared.notificationCenter
+        workspaceNC.addObserver(self,
+                                selector: #selector(handleSystemSleepOrLogout),
+                                name: NSWorkspace.willSleepNotification,
+                                object: nil)
+        workspaceNC.addObserver(self,
+                                selector: #selector(handleSystemSleepOrLogout),
+                                name: NSWorkspace.willPowerOffNotification,
+                                object: nil)
+        workspaceNC.addObserver(self,
+                                selector: #selector(handleSystemSleepOrLogout),
+                                name: NSWorkspace.sessionDidResignActiveNotification,
+                                object: nil)
+        workspaceNC.addObserver(self,
+                                selector: #selector(handleSystemSleepOrLogout),
+                                name: NSWorkspace.screensDidSleepNotification,
+                                object: nil)
+
+        // Screensaver start is delivered via distributed notifications.
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleSystemSleepOrLogout),
+            name: NSNotification.Name("com.apple.screensaver.didstart"),
+            object: nil
+        )
+
         // Update every second
         timer = Timer.scheduledTimer(timeInterval: 1.0,
                                      target: self,
@@ -42,10 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleStartStop() {
         if isRunning {
-            // Stop: fold running time into accumulated
-            accumulatedSeconds = currentElapsedSeconds()
-            startedAt = nil
-            isRunning = false
+            stopAndPersistElapsed()
         } else {
             // Start: set reference point so elapsed = accumulated + (now - startedAt)
             startedAt = Date()
@@ -103,7 +127,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateMenuBarTitle()
     }
 
+    // MARK: - System events
+
+    /// Called for system sleep, logout, power off, screen sleep, or screensaver start.
+    @objc private func handleSystemSleepOrLogout(_ notification: Notification) {
+        // Only act if the stopwatch is currently running.
+        guard isRunning else { return }
+        stopAndPersistElapsed()
+        updateMenuBarTitle()
+    }
+
     // MARK: - Helpers
+
+    /// Fold the currently running interval into `accumulatedSeconds` and mark as stopped.
+    private func stopAndPersistElapsed() {
+        accumulatedSeconds = currentElapsedSeconds()
+        startedAt = nil
+        isRunning = false
+    }
 
     private func currentElapsedSeconds() -> TimeInterval {
         if isRunning, let startedAt {

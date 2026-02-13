@@ -5,11 +5,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem!
     private var timer: Timer?
+    private var autoResumeMenuItem: NSMenuItem?
 
     // Stopwatch state
     private var isRunning = false
     private var accumulatedSeconds: TimeInterval = 0
     private var startedAt: Date?
+    private var resumeAfterInactive = false
+    private var autoResumeEnabled = true
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu bar item
@@ -21,6 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem(title: "Start / Stop", action: #selector(toggleStartStop), keyEquivalent: "s"))
         menu.addItem(NSMenuItem(title: "Reset", action: #selector(reset), keyEquivalent: "r"))
+        let autoResumeItem = NSMenuItem(title: "Auto-Resume After Inactive",
+                        action: #selector(toggleAutoResume),
+                        keyEquivalent: "a")
+        autoResumeItem.state = autoResumeEnabled ? .on : .off
+        menu.addItem(autoResumeItem)
+        autoResumeMenuItem = autoResumeItem
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Set Start Time…", action: #selector(setStartTime), keyEquivalent: "t"))
         menu.addItem(NSMenuItem.separator())
@@ -29,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for item in menu.items { item.target = self }
         statusItem.menu = menu
 
-        // Stop stopwatch automatically on sleep / logout / screensaver.
+        // Pause stopwatch on inactivity and resume when active again.
         let workspaceNC = NSWorkspace.shared.notificationCenter
         workspaceNC.addObserver(self,
                                 selector: #selector(handleSystemSleepOrLogout),
@@ -47,12 +56,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 selector: #selector(handleSystemSleepOrLogout),
                                 name: NSWorkspace.screensDidSleepNotification,
                                 object: nil)
+        workspaceNC.addObserver(self,
+                                selector: #selector(handleSystemActiveAgain),
+                                name: NSWorkspace.didWakeNotification,
+                                object: nil)
+        workspaceNC.addObserver(self,
+                                selector: #selector(handleSystemActiveAgain),
+                                name: NSWorkspace.sessionDidBecomeActiveNotification,
+                                object: nil)
+        workspaceNC.addObserver(self,
+                                selector: #selector(handleSystemActiveAgain),
+                                name: NSWorkspace.screensDidWakeNotification,
+                                object: nil)
 
         // Screensaver start is delivered via distributed notifications.
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(handleSystemSleepOrLogout),
             name: NSNotification.Name("com.apple.screensaver.didstart"),
+            object: nil
+        )
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleSystemActiveAgain),
+            name: NSNotification.Name("com.apple.screensaver.didstop"),
             object: nil
         )
 
@@ -84,6 +111,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             startedAt = Date()
         }
         updateMenuBarTitle()
+    }
+
+    @objc private func toggleAutoResume() {
+        autoResumeEnabled.toggle()
+        autoResumeMenuItem?.state = autoResumeEnabled ? .on : .off
+        if !autoResumeEnabled {
+            resumeAfterInactive = false
+        }
     }
 
     @objc private func setStartTime() {
@@ -133,7 +168,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func handleSystemSleepOrLogout(_ notification: Notification) {
         // Only act if the stopwatch is currently running.
         guard isRunning else { return }
+        resumeAfterInactive = autoResumeEnabled
         stopAndPersistElapsed()
+        updateMenuBarTitle()
+    }
+
+    /// Called when the system becomes active after inactivity.
+    @objc private func handleSystemActiveAgain(_ notification: Notification) {
+        guard resumeAfterInactive, !isRunning else { return }
+        startedAt = Date()
+        isRunning = true
+        resumeAfterInactive = false
         updateMenuBarTitle()
     }
 

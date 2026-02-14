@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var timer: Timer?
     private var autoResumeMenuItem: NSMenuItem?
+    private var elapsedMenuItem: NSMenuItem?
 
     // Stopwatch state
     private var isRunning = false
@@ -16,12 +17,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu bar item
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = formatTime(0)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = statusItem.button {
+            button.title = ""
+            button.imagePosition = .imageOnly
+        }
 
         // Menu
         let menu = NSMenu()
 
+        let elapsedItem = NSMenuItem(title: "Elapsed: 00:00:00", action: nil, keyEquivalent: "")
+        elapsedItem.isEnabled = false
+        menu.addItem(elapsedItem)
+        elapsedMenuItem = elapsedItem
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Start / Stop", action: #selector(toggleStartStop), keyEquivalent: "s"))
         menu.addItem(NSMenuItem(title: "Reset", action: #selector(reset), keyEquivalent: "r"))
         let autoResumeItem = NSMenuItem(title: "Auto-Resume After Inactive",
@@ -90,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                      userInfo: nil,
                                      repeats: true)
         RunLoop.main.add(timer!, forMode: .common)
+        updateMenuBarTitle()
     }
 
     // MARK: - Actions
@@ -201,7 +211,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateMenuBarTitle() {
         let elapsed = Int(currentElapsedSeconds())
-        statusItem.button?.title = formatTime(elapsed)
+        let formatted = formatTime(elapsed)
+        statusItem.button?.toolTip = formatted
+        elapsedMenuItem?.title = "Elapsed: \(formatted)"
+        updateStatusIconColor()
+    }
+
+    private func updateStatusIconColor() {
+        guard let button = statusItem.button else { return }
+        let color = isRunning ? NSColor.white : NSColor.systemGray
+        let baseImage = NSImage(systemSymbolName: "clock", accessibilityDescription: "Stopwatch")
+        let sizeConfig = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        let colorConfig = NSImage.SymbolConfiguration(paletteColors: [color])
+        let config = sizeConfig.applying(colorConfig)
+        let image = baseImage?.withSymbolConfiguration(config)
+        image?.isTemplate = false
+        button.image = image
     }
 
     private func formatTime(_ totalSeconds: Int) -> String {
